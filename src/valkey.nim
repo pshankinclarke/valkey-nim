@@ -7,28 +7,29 @@
 #    See the file "copying.txt", included in this
 #    distribution, for details about the copyright.
 #
+#    Forked and adapted for Valkey by Parker Shankin-Clarke, 2025.
 
-## This module implements a redis client. It allows you to connect to a
-## redis-server instance, send commands and receive replies.
+## This module implements a valkey client. It allows you to connect to a
+## valkey-server instance, send commands and receive replies.
 ##
-## **Beware**: Most (if not all) functions that return a ``RedisString`` may
-## return ``redisNil``.
+## **Beware**: Most (if not all) functions that return a ``ValkeyString`` may
+## return ``valkeyNil``.
 ##
 ## Example
 ## --------
 ##
 ## .. code-block::nim
-##    import redis, asyncdispatch
+##    import valkey, asyncdispatch
 ##
 ##    proc main() {.async.} =
-##      ## Open a connection to Redis running on localhost on the default port (6379)
-##      let redisClient = await openAsync()
+##      ## Open a connection to Valkey running on localhost on the default port (6379)
+##      let valkeyClient = await connectValkeyAsync()
 ##
-##      ## Set the key `nim_redis:test` to the value `Hello, World`
-##      await redisClient.setk("nim_redis:test", "Hello, World")
+##      ## Set the key `nim_valkey:test` to the value `Hello, World`
+##      await valkeyClient.setk("nim_valkey:test", "Hello, World")
 ##
-##      ## Get the value of the key `nim_redis:test`
-##      let value = await redisClient.get("nim_redis:test")
+##      ## Get the value of the key `nim_valkey:test`
+##      let value = await valkeyClient.get("nim_valkey:test")
 ##
 ##      assert(value == "Hello, World")
 ##
@@ -37,7 +38,8 @@
 import std/net, asyncdispatch, asyncnet, os, strutils, parseutils, deques, options
 
 const
-  redisNil* = "\0\0"
+  valkeyNil* = "\0\0"
+  redisNil* = valkeyNil
 
 type
   Pipeline = ref object
@@ -45,34 +47,51 @@ type
     buffer: string
     expected: int ## number of replies expected if pipelined
 
-  RedisBase[TSocket] = ref object of RootObj
+  ValkeyBase[TSocket] = ref object of RootObj
     socket: TSocket
     connected: bool
     pipeline: Pipeline
 
-  Redis* = ref object of RedisBase[net.Socket]
-    ## A synchronous redis client.
+  Valkey* = ref object of ValkeyBase[net.Socket]
+    ## A synchronous valkey client.
 
-  AsyncRedis* = ref object of RedisBase[asyncnet.AsyncSocket]
-    ## An asynchronous redis client.
+  AsyncValkey* = ref object of ValkeyBase[asyncnet.AsyncSocket]
+    ## An asynchronous valkey client.
     currentCommand: Option[string]
     sendQueue: Deque[Future[void]]
 
-  RedisStatus* = string
-  RedisInteger* = BiggestInt
-  RedisString* = string
+  ValkeyStatus* = string
+  ValkeyInteger* = BiggestInt
+  ValkeyString* = string
     ## Bulk reply
-  RedisList* = seq[RedisString]
+  ValkeyList* = seq[ValkeyString]
     ## Multi-bulk reply
-  RedisMessage* = object
+  ValkeyMessage* = object
     ## Pub/Sub
     channel*: string
     message*: string
-  ReplyError* = object of IOError ## Invalid reply from redis
-  RedisError* = object of IOError ## Error in redis
+  ReplyError* = object of IOError ## Invalid reply from valkey
+  ValkeyError* = object of IOError ## Error in valkey
 
-  RedisCursor* = ref object
+  ValkeyCursor* = ref object
     position*: BiggestInt
+
+  EngineKind* = enum
+   ekUnknown,
+   ekValkey,
+   ekRedis
+
+  ## --- Redis aliases ---
+
+  Redis* = Valkey
+  AsyncRedis* = AsyncValkey
+  RedisStatus* = ValkeyStatus
+  RedisInteger* = ValkeyInteger
+  RedisString* = ValkeyString
+  RedisList* = ValkeyList
+  RedisMessage* = ValkeyMessage
+  RedisError* = ValkeyError
+  RedisCursor* = ValkeyCursor
 
 proc newPipeline(): Pipeline =
   new(result)
@@ -89,7 +108,7 @@ proc `$`*(cursor: RedisCursor): string =
   result = $cursor.position
 
 proc open*(host = "localhost", port = 6379.Port): Redis =
-  ## Open a synchronous connection to a redis server.
+  ## Open a synchronous connection to a valkey/redis server.
   result = Redis(
     socket: newSocket(buffered = true),
     pipeline: newPipeline()
@@ -98,7 +117,7 @@ proc open*(host = "localhost", port = 6379.Port): Redis =
   result.socket.connect(host, port)
 
 proc openUnix*(path = "/var/run/redis/redis.sock"): Redis =
-  ## Open a synchronous unix connection to a redis server.
+  ## Open a synchronous unix connection to a valkey/redis server.
   result = Redis(
     socket: newSocket(AF_UNIX, SOCK_STREAM, IPPROTO_IP, buffered = false),
     pipeline: newPipeline()
@@ -107,7 +126,7 @@ proc openUnix*(path = "/var/run/redis/redis.sock"): Redis =
   result.socket.connectUnix(path)
 
 proc openAsync*(host = "localhost", port = 6379.Port): Future[AsyncRedis] {.async.} =
-  ## Open an asynchronous connection to a redis server.
+  ## Open an asynchronous connection to a valkey/redis server.
   result = AsyncRedis(
     socket: newAsyncSocket(buffered = true),
     pipeline: newPipeline(),
@@ -117,7 +136,7 @@ proc openAsync*(host = "localhost", port = 6379.Port): Future[AsyncRedis] {.asyn
   await result.socket.connect(host, port)
 
 proc openUnixAsync*(path = "/var/run/redis/redis.sock"): Future[AsyncRedis] {.async.} =
-  ## Open an asynchronous unix connection to a redis server.
+  ## Open an asynchronous unix connection to a valkey/redis server.
   result = AsyncRedis(
     socket: newAsyncSocket(AF_UNIX, SOCK_STREAM, IPPROTO_IP, buffered = false),
     pipeline: newPipeline(),
@@ -957,7 +976,7 @@ proc zinterstore*(r: Redis | AsyncRedis, destination: string, numkeys: string,
   ## Intersect multiple sorted sets and store the resulting sorted set in
   ## a new key
   let argsLen = 2 + len(keys) + (if len(weights) > 0: len(weights) + 1 else: 0) + (if len(aggregate) > 0: 1 + len(aggregate) else: 0)
-  var args = newSeqofCap[string](argsLen)
+  var args = newSeqOfCap[string](argsLen)
 
   args.add(destination)
   args.add(numkeys)
@@ -1245,6 +1264,39 @@ proc select*(r: Redis | AsyncRedis, index: int): Future[RedisStatus] {.multisync
   await r.sendCommand("SELECT", $index)
   result = await r.readStatus()
 
+proc setupValkeyConnection*(v : Valkey | AsyncValkey, db = 0, username = "", password = ""): Future[void] {.multisync.} =
+  ## Setup a valkey connection by authenticating and selecting the database
+  if password.len > 0 and username.len > 0:
+    await v.auth(username, password)
+  elif password.len > 0:
+    await v.auth(password)
+  if db != 0:
+    discard await v.select(db)
+
+proc connectValkey*(host = "localhost", port = 6379.Port, db = 0, username = "", password = ""): Valkey =
+  ## Open a synchronous connection to a valkey server.
+  let v = open(host, port)
+  v.setupValkeyConnection(db, username, password)
+  result = v
+
+proc connectValkeyUnix*(path = "/var/run/valkey/valkey-server.sock", db = 0, username = "", password = ""): Valkey =
+  ## Open a synchronous unix connection to a valkey server.
+  let v = openUnix(path)
+  v.setupValkeyConnection(db, username, password)
+  result = v
+
+proc connectValkeyAsync*(host = "localhost", port = 6379.Port, db = 0, username = "", password = ""): Future[AsyncValkey] {.async.} =
+  ## Open an asynchronous connection to a valkey server.
+  let v = await openAsync(host, port)
+  await v.setupValkeyConnection(db, username, password)
+  result = v
+
+proc connectValkeyUnixAsync*(path = "/var/run/valkey/valkey-server.sock", db = 0, username = "", password = ""): Future[AsyncValkey] {.async.} =
+  ## Open an asynchronous unix connection to a valkey server.
+  let v = await openUnixAsync(path)
+  await v.setupValkeyConnection(db, username, password)
+  result = v
+
 # Server
 
 proc bgrewriteaof*(r: Redis | AsyncRedis): Future[void] {.multisync.} =
@@ -1300,6 +1352,33 @@ proc info*(r: Redis | AsyncRedis): Future[RedisString] {.multisync.} =
   ## Get information and statistics about the server
   await r.sendCommand("INFO")
   result = await r.readBulkString()
+
+proc info*(r: Redis | AsyncRedis, section: string): Future[RedisString] {.multisync.} =
+  ## Get information and statistics about the server
+  await r.sendCommand("INFO", section)
+  result = await r.readBulkString()
+
+proc detectEngineKind(r: Valkey | AsyncValkey): Future[EngineKind] {.multisync.} =
+  ## Internal helper to detect the engine kind based on INFO server
+  let infoStr = await r.info("server")
+
+  var kind = ekUnknown
+  for rawLine in infoStr.splitLines():
+    let line = rawLine.strip()
+    if line.len == 0 or line[0] == '#':
+      continue
+    if line.startsWith("valkey_version:"):
+      kind = ekValkey
+    elif line.startsWith("redis_version:") and kind == ekUnknown:
+      kind = ekRedis
+
+proc isValkey*(v: Valkey | AsyncValkey): Future[bool] {.multisync.} =
+  ## Check if the connected server is Valkey
+  (await detectEngineKind(v)) == ekValkey
+
+proc isRedis*(r: Valkey | AsyncValkey): Future[bool] {.multisync.} =
+  ## Check if the connected server is Redis
+  (await detectEngineKind(r)) == ekRedis
 
 proc lastsave*(r: Redis | AsyncRedis): Future[RedisInteger] {.multisync.} =
   ## Get the UNIX time stamp of the last successful save to disk
@@ -1422,9 +1501,9 @@ proc assertListsIdentical(listA, listB: seq[string]) =
     i = i + 1
 
 when defined(testing) and not defined(testasync) and isMainModule:
-  echo "Testing sync redis client"
+  echo "Testing sync valkey client"
 
-  let r = open()
+  let r = connectValkey()
 
   # Test with no pipelining
   var listNormal = r.someTests(normal)
@@ -1442,15 +1521,15 @@ when defined(testing) and not defined(testasync) and isMainModule:
   echo "Multi: ", listMulti
 elif defined(testing) and defined(testasync) and isMainModule:
   proc mainAsync(): Future[void] {.async.} =
-    echo "Testing async redis client"
+    echo "Testing async valkey client"
 
-    let r = await openAsync()
+    let r = await connectValkeyAsync()
 
-    ## Set the key `nim_redis:test` to the value `Hello, World`
-    await r.setk("nim_redis:test", "Hello, World")
+    ## Set the key `nim_valkey:test` to the value `Hello, World`
+    await r.setk("nim_valkey:test", "Hello, World")
 
-    ## Get the value of the key `nim_redis:test`
-    let value = await r.get("nim_redis:test")
+    ## Get the value of the key `nim_valkey:test`
+    let value = await r.get("nim_valkey:test")
 
     assert(value == "Hello, World")
 

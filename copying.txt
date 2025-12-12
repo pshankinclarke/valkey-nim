@@ -22,3 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 [ MIT license: http://www.opensource.org/licenses/mit-license.php ]
+=====================================================
+Valkey fork and modifications:
+
+This project includes modifications, extensions, and renaming in 2025 to adapt the original Redis client for use with Valkey.

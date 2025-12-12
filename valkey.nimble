@@ -1,8 +1,8 @@
 # Package
 
-version       = "0.5.0"
-author        = "Dominik Picheta"
-description   = "Official redis client for Nim"
+version       = "0.1.0"
+author        = "Parker Shankin Clarke"
+description   = "Valkey (Redis-comptible) client for Nim"
 license       = "MIT"
 
 srcDir = "src"
@@ -12,7 +12,7 @@ srcDir = "src"
 requires "nim >= 0.11.0"
 
 task docs, "Build documentation":
-  exec "nim doc --index:on -o:docs/redis.html src/redis.nim"
+  exec "nim doc --index:on -o:docs/valkey.html src/valkey.nim"
 
 task test, "Run tests":
   exec "nim c -r tests/main.nim"

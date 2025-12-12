@@ -1,7 +1,12 @@
-import redis, unittest, asyncdispatch
+import valkey, unittest, asyncdispatch, os, strutils
+
+proc getValkeyPassword(): string =
+  let path = getHomeDir() / "valkey.creds"
+  return readFile(path).strip()
 
 template syncTests() =
-  let r = redis.open("localhost")
+  let pw = getValkeyPassword()
+  let r = connectValkey(host = "localhost", password = pw)
   let keys = r.keys("*")
   doAssert keys.len == 0, "Don't want to mess up an existing DB."
 
@@ -95,16 +100,26 @@ template syncTests() =
     discard r.pfadd("redisTest:pfcount2", @["bar"])
     check r.pfcount(@["redisTest:pfcount1", "redisTest:pfcount2"]) == 2
 
+  test "engine detection (sync)":
+    let valkeyFlag = r.isValkey()
+    let redisFlag = r.isRedis()
+
+    # they shouldn't both be true
+    check not (valkeyFlag and redisFlag)
+
+    check valkeyFlag or redisFlag
+
   # TODO: Ideally tests for all other procedures, will add these in the future
 
   # delete all keys in the DB at the end of the tests
   discard r.flushdb()
   r.quit()
-suite "redis tests":
+suite "valkey tests":
   syncTests()
 
-suite "redis async tests":
-  let r = waitFor redis.openAsync("localhost")
+suite "valkey async tests":
+  let pw = getValkeyPassword()
+  let r = waitFor connectValkeyAsync("localhost", password = pw)
   let keys = waitFor r.keys("*")
   doAssert keys.len == 0, "Don't want to mess up an existing DB."
 
@@ -134,8 +149,9 @@ suite "redis async tests":
   test "pub/sub":
 
     proc main() {.async.} =
-      let sub = waitFor redis.openAsync("localhost")
-      let pub = waitFor redis.openAsync("localhost")
+      let pw = getValkeyPassword()
+      let sub = waitFor connectValkeyAsync(host = "localhost", password = pw)
+      let pub = waitFor connectValkeyAsync(host = "localhost", password = pw)
 
       let listerns = await pub.publish("channel1", "hi there")
       doAssert listerns == 0
@@ -153,13 +169,22 @@ suite "redis async tests":
 
     waitFor main()
 
+  test "engine detection (async)":
+    let valkeyFlag = waitFor r.isValkey()
+    let redisFlag = waitFor r.isRedis()
+
+    # they shouldn't both be true
+    check not (valkeyFlag and redisFlag)
+
+    check valkeyFlag or redisFlag
+
   discard waitFor r.flushdb()
   waitFor r.quit()
 
 
 when compileOption("threads"):
   proc threadFunc() {.thread.} =
-    suite "redis threaded tests":
+    suite "valkey threaded tests":
       syncTests()
 
   var th: Thread[void]
