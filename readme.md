@@ -1,10 +1,10 @@
-# valkey
+# Valkey
 
-A valkey client for Nim. This library is a fork of the official [`nim-lang/redis`](https://github.com/nim-lang/redis) client, adapted to work with [valkey](https://valkey.io/), while remaining compatible with redis.
+A [Valkey](https://valkey.io/) client for Nim.
 
 ## Installation
 
-Once published, you'll be able to add the following to your `.nimble` file:
+Add the following to your `.nimble` file:
 
 ```
 # Dependencies
@@ -12,10 +12,10 @@ Once published, you'll be able to add the following to your `.nimble` file:
 requires "valkey >= 0.1.0"
 ```
 
-Or, to install globally to your Nimble cache run the following command (from git until published):
+Or, to install globally:
 
 ```
-nimble install https://github.com/pshankinclarke/valkey-nim@#valkey
+nimble install valkey
 ```
 
 ## Usage
@@ -38,8 +38,8 @@ proc main() {.async.} =
 waitFor main()
 ```
 
-There is also a synchronous version of the client, that can be created using the `connectValkey()` procedure rather than `connectValkeyAsync()`.
+There is also a synchronous version of the client that can be created using the `connectValkey()` procedure rather than `connectValkeyAsync()`.
 
 ## License
 
-Copyright (C) 2015, 2017 Dominik Picheta and contributors. Forked and adapted for Valkey by Parker Shankin-Clarke.  All rights reserved.
+Released under the MIT License, the same license as `nim-lang/redis` when this project was forked.
