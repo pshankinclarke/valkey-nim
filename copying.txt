@@ -1,8 +1,9 @@
 =====================================================
-A Redis client for Nim.
+A Valkey client for Nim.
 
 Copyright (C) 2015, 2017 Dominik Picheta. All rights reserved.
- 
+Copyright (C) 2025-present Parker Shankin-Clarke.
+
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -22,7 +23,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 [ MIT license: http://www.opensource.org/licenses/mit-license.php ]
-=====================================================
-Valkey fork and modifications:
+=====================================================r
 
-This project includes modifications, extensions, and renaming in 2025 to adapt the original Redis client for use with Valkey.
