@@ -2,7 +2,7 @@
 
 version       = "0.1.0"
 author        = "Parker Shankin Clarke"
-description   = "Valkey (Redis-comptible) client for Nim"
+description   = "Valkey (Redis-compatible) client for Nim"
 license       = "MIT"
 
 srcDir = "src"

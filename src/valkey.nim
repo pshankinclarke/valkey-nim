@@ -1371,6 +1371,7 @@ proc detectEngineKind(r: Valkey | AsyncValkey): Future[EngineKind] {.multisync.}
       kind = ekValkey
     elif line.startsWith("redis_version:") and kind == ekUnknown:
       kind = ekRedis
+  result = kind
 
 proc isValkey*(v: Valkey | AsyncValkey): Future[bool] {.multisync.} =
   ## Check if the connected server is Valkey
