@@ -195,8 +195,7 @@ proc managedRecvLine(r: Redis | AsyncRedis): Future[string] {.multisync.} =
     result = ""
   else:
     when r is Redis:
-      let taintedResult: TaintedString = recvLine(r.socket)
-      result = $taintedResult
+      result = recvLine(r.socket)
     else:
       result = await recvLine(r.socket)
 
@@ -1403,8 +1402,7 @@ proc shutdown*(r: Redis | AsyncRedis): Future[void] {.multisync.} =
   await r.sendCommand("SHUTDOWN")
 
   when r is Redis:
-    var taintedResult: TaintedString = recvLine(r.socket)
-    let s = $taintedResult
+    let s = recvLine(r.socket)
     if len(s) != 0:
       raiseRedisError(r, s)
   else:
