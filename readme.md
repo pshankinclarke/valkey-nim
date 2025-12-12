@@ -15,7 +15,7 @@ requires "valkey >= 0.1.0"
 Or, to install globally to your Nimble cache run the following command (from git until published):
 
 ```
-nimble install https://github.com/pshankinclarke/redis@#valkey
+nimble install https://github.com/pshankinclarke/valkey-nim@#valkey
 ```
 
 ## Usage
