@@ -2,11 +2,26 @@ import valkey, unittest, asyncdispatch, os, strutils
 
 proc getValkeyPassword(): string =
   let path = getHomeDir() / "valkey.creds"
-  return readFile(path).strip()
+  if fileExists(path):
+    return readFile(path).strip()
+  return ""
+
+proc connectTest*(T: typedesc[Valkey]): Valkey =
+  let pw = getValkeyPassword()
+  if pw.len > 0:
+    result = connectValkey(host = "localhost", password = pw)
+  else:
+    result = connectValkey(host = "localhost")
+
+proc connectTest*(T: typedesc[AsyncValkey]): Future[AsyncValkey] {.async.} =
+  let pw = getValkeyPassword()
+  if pw.len > 0:
+    result = await connectValkeyAsync(host = "localhost", password = pw)
+  else:
+    result = await connectValkeyAsync(host = "localhost")
 
 template syncTests() =
-  let pw = getValkeyPassword()
-  let r = connectValkey(host = "localhost", password = pw)
+  let r = connectTest(Valkey)
   let keys = r.keys("*")
   doAssert keys.len == 0, "Don't want to mess up an existing DB."
 
@@ -118,8 +133,7 @@ suite "valkey tests":
   syncTests()
 
 suite "valkey async tests":
-  let pw = getValkeyPassword()
-  let r = waitFor connectValkeyAsync("localhost", password = pw)
+  let r = waitFor connectTest(AsyncValkey)
   let keys = waitFor r.keys("*")
   doAssert keys.len == 0, "Don't want to mess up an existing DB."
 
@@ -149,9 +163,8 @@ suite "valkey async tests":
   test "pub/sub":
 
     proc main() {.async.} =
-      let pw = getValkeyPassword()
-      let sub = waitFor connectValkeyAsync(host = "localhost", password = pw)
-      let pub = waitFor connectValkeyAsync(host = "localhost", password = pw)
+      let sub = await connectTest(AsyncValkey)
+      let pub = await connectTest(AsyncValkey)
 
       let listerns = await pub.publish("channel1", "hi there")
       doAssert listerns == 0
