@@ -124,6 +124,13 @@ template syncTests() =
 
     check valkeyFlag or redisFlag
 
+  test "pipeline flush works":
+    r.startPipelining()
+    r.setk("pipelineTest:key1", "value1")
+    discard r.get("pipelineTest:key1")
+    let replies = r.flushPipeline()
+    check replies.contains("value1")
+
   # TODO: Ideally tests for all other procedures, will add these in the future
 
   # delete all keys in the DB at the end of the tests
@@ -159,6 +166,15 @@ suite "valkey async tests":
       return true
 
     check (waitFor main())
+
+  test "subscribe then quit doesn't hang (issue #34)":
+    proc main(): Future[bool] {.async.} =
+      let sub = await connectTest(AsyncValkey)
+      await sub.subscribe("channel_deadlock_test")
+      let ok = await withTimeout(sub.quit(), 2000)
+      return ok
+
+    check waitFor main()
 
   test "pub/sub":
 
