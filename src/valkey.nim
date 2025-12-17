@@ -93,6 +93,21 @@ type
   RedisError* = ValkeyError
   RedisCursor* = ValkeyCursor
 
+  ## --- Pub/Sub ---
+  PubSubEventKind* = enum
+    pekUnknown,
+    pekSubscribe, pekUnsubscribe,
+    pekPSubscribe, pekPUnsubscribe,
+    pekSSubscribe, pekSUnsubscribe,
+    pekMessage, pekPMessage, pekSMessage,
+    pekPong
+
+  PubSubEvent* = object
+    kind*: PubSubEventKind
+    pattern*: string
+    channel*: string
+    data*: string
+
 proc newPipeline(): Pipeline =
   new(result)
   result.buffer = ""
@@ -1155,6 +1170,66 @@ proc pfmerge*(r: Redis | AsyncRedis, destination: string, sources: seq[string]):
   raiseNoOK(r, await r.readStatus())
 
 # Pub/Sub
+
+proc stringToKind(s: string): PubSubEventKind =
+  case s.toLowerAscii()
+  of "subscribe":    pekSubscribe
+  of "unsubscribe":  pekUnsubscribe
+  of "psubscribe":   pekPSubscribe
+  of "punsubscribe": pekPUnsubscribe
+  of "ssubscribe":   pekSSubscribe
+  of "sunsubscribe": pekSUnsubscribe
+  of "message":      pekMessage
+  of "pmessage":     pekPMessage
+  of "smessage":     pekSMessage
+  of "pong":         pekPong
+  else:              pekUnknown
+
+proc parseEvent*(response: openArray[string]): Option[PubSubEvent] =
+  if response.len == 0: return none(PubSubEvent)
+
+  let kind = stringToKind(response[0])
+  var event = PubSubEvent(kind: kind)
+
+  case kind
+  of pekPMessage:
+    # ["pmessage", pattern, channel, data]
+    if response.len != 4: return none(PubSubEvent)
+    event.pattern = response[1]
+    event.channel = response[2]
+    event.data = response[3]
+    return some(event)
+
+  of pekMessage, pekSMessage:
+    # ["message"|"smessage", channel, data]
+    if response.len != 3: return none(PubSubEvent)
+    event.channel = response[1]
+    event.data = response[2]
+    return some(event)
+
+  of pekPong:
+    # ["pong", data]
+    if response.len != 2: return none(PubSubEvent)
+    event.data = response[1]
+    return some(event)
+
+  of pekPSubscribe, pekPUnsubscribe:
+    # ["psubscribe"|"punsubscribe", pattern, count]
+    if response.len != 3: return none(PubSubEvent)
+    event.pattern = response[1]
+    event.data = response[2]
+    return some(event)
+
+  of pekSubscribe, pekUnsubscribe, pekSSubscribe, pekSUnsubscribe:
+    # ["subscribe"|"unsubscribe"|"ssubscribe"|"sunsubscribe", channel, count]
+    if response.len != 3: return none(PubSubEvent)
+    event.channel = response[1]
+    event.data = response[2]
+    return some(event)
+
+  else:
+    return none(PubSubEvent)
+
 
 # proc psubscribe*(r: Redis, pattern: openarray[string]): ???? =
 #   ## Listen for messages published to channels matching the given patterns
