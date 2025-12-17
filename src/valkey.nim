@@ -55,10 +55,18 @@ type
   Valkey* = ref object of ValkeyBase[net.Socket]
     ## A synchronous valkey client.
 
+  ValkeyConnParams* = object
+    host*: string
+    port*: Port
+    username*: string
+    password*: string
+    # TODO: include db / tls/ timeouts once reconnect is implemented
+
   AsyncValkey* = ref object of ValkeyBase[asyncnet.AsyncSocket]
     ## An asynchronous valkey client.
     currentCommand: Option[string]
     sendQueue: Deque[Future[void]]
+    params: ValkeyConnParams
 
   ValkeyStatus* = string
   ValkeyInteger* = BiggestInt
@@ -107,6 +115,11 @@ type
     pattern*: string
     channel*: string
     data*: string
+
+  AsyncPubSub* = ref object
+    params*: ValkeyConnParams
+    conn*: AsyncValkey             # nil until first subscribe
+    ignoreSubscribeMessages*: bool
 
 proc newPipeline(): Pipeline =
   new(result)
@@ -1171,6 +1184,12 @@ proc pfmerge*(r: Redis | AsyncRedis, destination: string, sources: seq[string]):
 
 # Pub/Sub
 
+proc pubsub*(c: AsyncValkey; ignoreSubscribeMessages=false): AsyncPubSub =
+  new(result)
+  result.params = c.params
+  result.conn = nil # lazy
+  result.ignoreSubscribeMessages = ignoreSubscribeMessages
+
 proc stringToKind(s: string): PubSubEventKind =
   case s.toLowerAscii()
   of "subscribe":    pekSubscribe
@@ -1364,6 +1383,7 @@ proc connectValkeyUnix*(path = "/var/run/valkey/valkey-server.sock", db = 0, use
 proc connectValkeyAsync*(host = "localhost", port = 6379.Port, db = 0, username = "", password = ""): Future[AsyncValkey] {.async.} =
   ## Open an asynchronous connection to a valkey server.
   let v = await openAsync(host, port)
+  v.params = ValkeyConnParams(host: host, port: port, username: username, password: password)
   await v.setupValkeyConnection(db, username, password)
   result = v
 

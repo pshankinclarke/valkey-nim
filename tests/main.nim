@@ -226,6 +226,14 @@ suite "valkey async tests":
   test "bad arity -> none":
     check parseEvent(["message", "chan"]).isNone
 
+  test "lazy pubsub":
+    let r = waitFor connectTest(AsyncValkey)
+    let ps = r.pubsub(ignoreSubscribeMessages = true)
+    check ps.conn.isNil
+    check ps.ignoreSubscribeMessages == true
+    check ps.params.host == "localhost"
+    check int(ps.params.port) == 6379
+
   test "engine detection (async)":
     let valkeyFlag = waitFor r.isValkey()
     let redisFlag = waitFor r.isRedis()
