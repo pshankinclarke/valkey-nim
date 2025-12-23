@@ -257,7 +257,7 @@ suite "valkey async tests":
       return true
     check waitFor main()
 
-
+  # TODO: This test can be flaky because publish may happen before subscribe is active
   test "pubsub ignoreSubscribeMessages":
     proc main(): Future[bool] {.async.} =
       let base = await connectTest(AsyncValkey)
@@ -321,6 +321,27 @@ suite "valkey async tests":
         discard await withTimeout(ps.close(), 500)
         discard await withTimeout(pub.close(), 500)
         discard await withTimeout(base.close(), 500)
+
+    check waitFor main()
+
+  test "pubsub: PING returns PONG":
+    proc main(): Future[bool] {.async.} =
+      let base = await connectTest(AsyncValkey)
+      let ps = base.pubsub(ignoreSubscribeMessages = false)
+
+      await ps.executeCommand("PING")
+
+      let fut = ps.receiveEvent()
+      doAssert await withTimeout(fut, 2000)
+      let ev = await fut
+
+      doAssert ev.kind == pekPong
+      doAssert ev.data == ""
+      doAssert ev.channel == ""
+
+      await ps.close()
+      await base.close()
+      return true
 
     check waitFor main()
 

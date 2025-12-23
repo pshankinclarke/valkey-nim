@@ -1360,7 +1360,10 @@ proc parseEvent*(response: openArray[string]): Option[PubSubEvent] =
     return some(event)
 
   of pekPong:
-    # ["pong", data]
+    # ["pong"] / ["PONG"] or ["pong", data]
+    if response.len == 1:
+      event.data = ""
+      return some(event)
     if response.len != 2: return none(PubSubEvent)
     event.data = response[1]
     return some(event)
