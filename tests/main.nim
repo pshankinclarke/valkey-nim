@@ -234,6 +234,29 @@ suite "valkey async tests":
     check ps.params.host == "localhost"
     check int(ps.params.port) == 6379
 
+  test "check subscribe acks with pubsub lazy connection":
+    proc main(): Future[bool] {.async.} =
+      let base = await connectTest(AsyncValkey)
+      let ps = base.pubsub(ignoreSubscribeMessages = false)
+      doAssert ps.conn.isNil
+
+      let ch = "test_pubsub_sub_ack"
+      await ps.subscribe(ch)
+      doAssert ps.conn.isNil == false
+
+      let fut = ps.parseResponse()
+      let frame = await fut
+
+      doAssert frame.len == 3
+      doAssert frame[0] == "subscribe"
+      doAssert frame[1] == ch
+      doAssert frame[2] == "1"
+
+      await ps.close()
+      await base.close()
+      return true
+    check waitFor main()
+
   test "engine detection (async)":
     let valkeyFlag = waitFor r.isValkey()
     let redisFlag = waitFor r.isRedis()

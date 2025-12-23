@@ -338,13 +338,47 @@ proc readArrayLines(r: Redis | AsyncRedis, countLine: string): Future[RedisList]
 
   for i in 1..numElems:
     when r is Redis:
-      var parsed = r.readNext()
+      let parsed = r.readNext()
     else:
-      var parsed = await r.readNext()
+      let parsed = await r.readNext()
 
     if parsed.len > 0:
       for item in parsed:
         result.add(item)
+
+
+proc readPubSubElement(r: Redis | AsyncRedis; firstLine: string): Future[string] {.multisync, gcsafe.} =
+  if firstLine.len == 0:
+    raiseReplyError(r, "pubsub connection closed")
+  case firstLine[0]
+  of '+':
+    # status: +PONG / +OK / etc
+    return firstLine.substr(1)
+  of '-':
+    raiseRedisError(r, strip(firstLine))
+  of ':':
+    return $(r.parseInteger(firstLine))
+  of '$':
+    let x = await r.readSingleString(firstLine, true)
+    return x.get(redisNil)
+  of '*':
+    # nested array: flatten with a delimiter or raise; Pub/Sub shouldn't have nested arrays
+    raiseReplyError(r, "Unexpected nested array in Pub/Sub element")
+  else:
+    raiseReplyError(r, "readPubSubElement failed on line: " & firstLine)
+
+proc readPubSubArrayLines(r: Redis | AsyncRedis; countLine: string):Future[RedisList] {.multisync, gcsafe.} =
+  if countLine.len == 0 or countLine[0] != '*':
+    raiseInvalidReply(r, '*', (if countLine.len == 0: '\0' else: countLine[0]))
+  let n = parseInt(countLine.substr(1))
+  result = @[]
+  if n == -1:
+    return
+  for _ in 0..<n:
+    let line = await r.managedRecvLine()
+    if line.len == 0:
+      raiseReplyError(r, "pubsub connection closed")
+    result.add(await r.readPubSubElement(line))
 
 proc readArrayLines(r: Redis | AsyncRedis): Future[RedisList] {.multisync.} =
   let line = await r.managedRecvLine()
@@ -392,6 +426,34 @@ proc readNext(r: Redis | AsyncRedis): Future[RedisList] {.multisync.} =
 
   r.pipeline.expected -= 1
   return res
+
+proc readPubSubFrame*(r: Redis | AsyncRedis): Future[RedisList] {.multisync, gcsafe.} =
+  ## Reads exactly one RESP frame from the socket (subscribe acks, messages, pong, etc.)
+  ## Does not touch pipeline.expected.
+  ##
+  ## In Pub/Sub mode, the frames are push messages and are not 1:1 with commands,
+  ## so pipeline book keeping would be incorrect here.
+  let line = await r.managedRecvLine()
+
+  ## In pubsub, returning @[] is ambiguous and empty lines should trigger disconnect/EOF.
+  if line.len == 0:
+    raiseReplyError(r, "pubsub connection closed")
+
+
+  case line[0]
+  of '*':
+    return await r.readPubSubArrayLines(line)
+  of '+':
+    return @[line.substr(1)]
+  of '-':
+    raiseRedisError(r, strip(line))
+  of ':':
+    return @[$(r.parseInteger(line))]
+  of '$':
+    let x = await r.readSingleString(line, true)
+    return @[x.get(redisNil)]
+  else:
+    raiseReplyError(r, "readPubSubFrame failed on line: " & line)
 
 proc flushPipeline*(r: Redis | AsyncRedis, wasMulti = false): Future[RedisList] {.multisync.} =
   ## Send buffered commands, clear buffer, return results
@@ -1190,6 +1252,77 @@ proc pubsub*(c: AsyncValkey; ignoreSubscribeMessages=false): AsyncPubSub =
   result.conn = nil # lazy
   result.ignoreSubscribeMessages = ignoreSubscribeMessages
 
+proc connectValkeyAsync*(host = "localhost", port = 6379.Port, db = 0,
+                        username = "", password = ""): Future[AsyncValkey]
+
+proc ensureConn*(ps: AsyncPubSub): Future[void] {.async.} =
+  ## Lazily create a AsyncValkey connection for the Pub/Sub instance
+  if ps.conn.isNil:
+    # NOTE: db not in params yet; use default 0
+    ps.conn = await connectValkeyAsync(
+      host = ps.params.host,
+      port = ps.params.port,
+      username = ps.params.username,
+      password = ps.params.password
+    )
+    ps.conn.pipeline.enabled = false
+    ps.conn.pipeline.expected = 0
+
+proc encodeRespArray(argv: openArray[string]): string =
+  ## Encode argv as RESP2 Array of bulk strings
+  ## e.g. ["PING", "hello"] -> "*2\r\n$4\r\nPING\r\n$5\r\nhello\r\n"
+  doAssert argv.len > 0
+  result = "*" & $argv.len & "\c\L"
+  for arg in argv:
+    result.add("$" & $arg.len & "\c\L")
+    result.add(arg & "\c\L")
+
+proc executeCommandImpl(ps: AsyncPubSub; argv: seq[string]): Future[void] {.async.} =
+  let req = encodeRespArray(argv)
+  await ps.ensureConn()
+  # IMPORTANT: bypass managedSend/SendCommand to avoid currentCommand/finalise coupling.
+  await ps.conn.socket.send(req) # send-only, no reads, no managedSend
+
+proc executeCommand*(ps: AsyncPubSub; argv: openArray[string]): Future[void] =
+  # Execute with argv as is
+  return ps.executeCommandImpl(@argv)
+
+proc executeCommand*(ps: AsyncPubSub; cmd:string; args: varargs[string]): Future[void] =
+  # Construct argv from cmd + args
+  var argv: seq[string] = @[cmd]
+  for a in args: argv.add a
+  return ps.executeCommandImpl(argv)
+
+proc subscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
+  var argv: seq[string] = @["SUBSCRIBE"]
+  for c in channels: argv.add c
+  return ps.executeCommand(argv)
+
+proc psubscribe*(ps: AsyncPubSub; pattern: varargs[string]): Future[void] =
+  var argv: seq[string] = @["PSUBSCRIBE"]
+  for p in pattern: argv.add p
+  return ps.executeCommand(argv)
+
+proc ssubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
+  var argv: seq[string] = @["SSUBSCRIBE"]
+  for c in channels: argv.add c
+  return ps.executeCommand(argv)
+
+proc parseResponse*(ps: AsyncPubSub): Future[RedisList] {.async.} =
+  await ps.ensureConn()
+  let frame = await ps.conn.readPubSubFrame()
+
+  # Read one Pub/Sub frame and normalize the "PING" replies into
+  # ["pong"] or ["pong", data] shape so parseEvent() can handle them.
+  # TODO: handle other single-element replies...
+  if frame.len == 1:
+    let s = frame[0].toLowerAscii()
+    if s == "pong":
+      return @["pong"]
+    else:
+      return @["pong", s]
+  return frame
+
 proc stringToKind(s: string): PubSubEventKind =
   case s.toLowerAscii()
   of "subscribe":    pekSubscribe
@@ -1342,6 +1475,13 @@ proc ping*(r: Redis | AsyncRedis): Future[RedisStatus] {.multisync.} =
   ## Ping the server
   await r.sendCommand("PING")
   result = await r.readStatus()
+
+proc close*(ps: AsyncPubSub): Future[void] {.async.} =
+  ## Pub/Sub connection close (disconnect)
+  if ps.conn.isNil:
+    return
+  ps.conn.socket.close()
+  ps.conn = nil
 
 proc close*(r: Redis | AsyncRedis): Future[void] {.multisync.} =
   ## Close the connection
