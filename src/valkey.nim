@@ -1383,6 +1383,33 @@ proc parseEvent*(response: openArray[string]): Option[PubSubEvent] =
     return none(PubSubEvent)
 
 
+proc handleMessage*(ps: AsyncPubSub; frame: RedisList): Option[PubSubEvent] =
+  let eventOpt = parseEvent(frame)
+  if eventOpt.isNone: return none(PubSubEvent)
+  let event = eventOpt.get()
+
+  let isSubCtl = event.kind in {
+     pekSubscribe, pekUnsubscribe,
+     pekPSubscribe, pekPUnsubscribe,
+     pekSSubscribe, pekSUnsubscribe
+  }
+  if isSubCtl and ps.ignoreSubscribeMessages:
+    return none(PubSubEvent)
+  return some(event)
+
+proc receiveEvent*(ps: AsyncPubSub): Future[PubSubEvent] {.async.} =
+  while true:
+    let frame = await ps.parseResponse()
+    let eventOpt = ps.handleMessage(frame)
+    if eventOpt.isSome:
+      return eventOpt.get()
+
+proc receiveMessage*(ps: AsyncPubSub): Future[PubSubEvent] {.async.} =
+  while true:
+    let event = await ps.receiveEvent()
+    if event.kind in {pekMessage, pekPMessage, pekSMessage}:
+      return event
+
 # proc psubscribe*(r: Redis, pattern: openarray[string]): ???? =
 #   ## Listen for messages published to channels matching the given patterns
 #   r.socket.send("PSUBSCRIBE $#\c\L" % pattern)
@@ -1486,6 +1513,16 @@ proc close*(ps: AsyncPubSub): Future[void] {.async.} =
 proc close*(r: Redis | AsyncRedis): Future[void] {.multisync.} =
   ## Close the connection
   r.socket.close()
+
+proc quit*(ps: AsyncPubSub): Future[void] {.async.} =
+  ## Close the Pub/Sub connection with using QUIT command
+  if ps.conn.isNil: return
+  try:
+    await ps.executeCommand("QUIT")
+  except:
+    discard
+  ps.conn.socket.close()
+  ps.conn = nil
 
 proc quit*(r: Redis | AsyncRedis): Future[void] {.multisync.} =
   ## Close the connection with using QUIT command

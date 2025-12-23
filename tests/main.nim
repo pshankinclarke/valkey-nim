@@ -257,6 +257,73 @@ suite "valkey async tests":
       return true
     check waitFor main()
 
+
+  test "pubsub ignoreSubscribeMessages":
+    proc main(): Future[bool] {.async.} =
+      let base = await connectTest(AsyncValkey)
+      let pub = await connectTest(AsyncValkey)
+      let ps = base.pubsub(ignoreSubscribeMessages = true)
+
+      let ch1 = "test_pubsub_ignore_1"
+      let ch2 = "test_pubsub_ignore_2"
+
+      # subscribe to ch1 and don't consume its ack
+      await ps.subscribe(ch1)
+
+      # subscribe to ch2 and don't consume its ack
+      await ps.subscribe(ch2)
+
+      # publish to ch1
+      discard await pub.publish(ch1, "hello")
+
+      # should get the message from ch1 not the acks from ch1 or ch2
+      let fut = ps.receiveEvent()
+      doAssert await withTimeout(fut, 2000)
+      let event = await fut
+
+      doAssert event.kind == pekMessage
+      doAssert event.channel == ch1
+      doAssert event.data == "hello"
+
+      await ps.close()
+      await pub.close()
+      await base.close()
+      return true
+
+    check waitFor main()
+
+  test "pubsub receiveMessage":
+    proc main(): Future[bool] {.async.} =
+      let base = await connectTest(AsyncValkey)
+      let pub  = await connectTest(AsyncValkey)
+      let ps   = base.pubsub(ignoreSubscribeMessages = false)
+
+      let ch1 = "test_pubsub_receive_1"
+      let ch2 = "test_pubsub_receive_2"
+
+      try:
+        await ps.subscribe(ch1)
+        discard await ps.receiveEvent()  # consume subscribe ack for ch1
+
+        await ps.subscribe(ch2)          # leave ch2 ack pending
+        let msgFut = ps.receiveMessage() # should skip ch2 ack internally
+
+        discard await pub.publish(ch1, "payload")
+
+        doAssert await withTimeout(msgFut, 2000)
+        let event = await msgFut
+
+        doAssert event.kind == pekMessage
+        doAssert event.channel == ch1
+        doAssert event.data == "payload"
+        return true
+      finally:
+        discard await withTimeout(ps.close(), 500)
+        discard await withTimeout(pub.close(), 500)
+        discard await withTimeout(base.close(), 500)
+
+    check waitFor main()
+
   test "engine detection (async)":
     let valkeyFlag = waitFor r.isValkey()
     let redisFlag = waitFor r.isRedis()
