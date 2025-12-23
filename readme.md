@@ -53,13 +53,14 @@ proc main() {.async.} =
 
   let msg = await p.receiveMessage()
   echo msg.channel, ": ", msg.data
-  # my-first-channel: hello form valkey-cli
+  # my-first-channel: hello from valkey-cli
 
   await p.close()
-  await r.close()
+  await v.close()
 
 waitFor main()
 ```
+`receiveEvent()` returns the next Pub/Sub event (you can hide or show subscribe acknowledgements with `pubsub(ignoreSubscribeMessages=true/false)`). `receiveMessage()` is a wrapper that skips everything except published messages.
 
 ## License
 
