@@ -40,20 +40,20 @@ waitFor main()
 
 There is also a synchronous version of the client that can be created using the `connectValkey()` procedure rather than `connectValkeyAsync()`.
 
-#### PubSub
+### PubSub
 
 ```nim
 import valkey, asyncdispatch
 
 proc main() {.async.} =
-  let r = await connectValkeyAsync(ignoreSubscribeMessages = false)
-  let p = r.pubsub()
+  let v = await connectValkeyAsync()
+  let p = v.pubsub()
 
-  await p.subscribe("my-first-channel", "my-second-channel")
+  await p.subscribe("my-first-channel")
 
-  # The next frames are the subscribe acknowledgements
-  let event = await p.receiveEvent()
-  echo event.kind, " channel: ", event.channel, " data: ", event.data
+  let msg = await p.receiveMessage()
+  echo msg.channel, ": ", msg.data
+  # my-first-channel: hello form valkey-cli
 
   await p.close()
   await r.close()
