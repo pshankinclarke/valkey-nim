@@ -40,6 +40,27 @@ waitFor main()
 
 There is also a synchronous version of the client that can be created using the `connectValkey()` procedure rather than `connectValkeyAsync()`.
 
+#### PubSub
+
+```nim
+import valkey, asyncdispatch
+
+proc main() {.async.} =
+  let r = await connectValkeyAsync(ignoreSubscribeMessages = false)
+  let p = r.pubsub()
+
+  await p.subscribe("my-first-channel", "my-second-channel")
+
+  # The next frames are the subscribe acknowledgements
+  let event = await p.receiveEvent()
+  echo event.kind, " channel: ", event.channel, " data: ", event.data
+
+  await p.close()
+  await r.close()
+
+waitFor main()
+```
+
 ## License
 
 Released under the MIT License, the same license as `nim-lang/redis` when this project was forked.
