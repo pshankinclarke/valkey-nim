@@ -1310,18 +1310,7 @@ proc ssubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
 
 proc parseResponse*(ps: AsyncPubSub): Future[RedisList] {.async.} =
   await ps.ensureConn()
-  let frame = await ps.conn.readPubSubFrame()
-
-  # Read one Pub/Sub frame and normalize the "PING" replies into
-  # ["pong"] or ["pong", data] shape so parseEvent() can handle them.
-  # TODO: handle other single-element replies...
-  if frame.len == 1:
-    let s = frame[0].toLowerAscii()
-    if s == "pong":
-      return @["pong"]
-    else:
-      return @["pong", s]
-  return frame
+  return await ps.conn.readPubSubFrame()
 
 proc stringToKind(s: string): PubSubEventKind =
   case s.toLowerAscii()
