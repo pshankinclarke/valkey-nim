@@ -1308,6 +1308,27 @@ proc ssubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
   for c in channels: argv.add c
   return ps.executeCommand(argv)
 
+proc unsubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
+  if channels.len == 0:
+    return ps.executeCommand("UNSUBSCRIBE")
+  var argv: seq[string] = @["UNSUBSCRIBE"]
+  for c in channels: argv.add c
+  return ps.executeCommand(argv)
+
+proc punsubscribe*(ps: AsyncPubSub; patterns: varargs[string]): Future[void] =
+  if patterns.len == 0:
+    return ps.executeCommand("PUNSUBSCRIBE")
+  var argv: seq[string] = @["PUNSUBSCRIBE"]
+  for p in patterns: argv.add p
+  return ps.executeCommand(argv)
+
+proc sunsubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
+  if channels.len == 0:
+    return ps.executeCommand("SUNSUBSCRIBE")
+  var argv: seq[string] = @["SUNSUBSCRIBE"]
+  for c in channels: argv.add c
+  return ps.executeCommand(argv)
+
 proc parseResponse*(ps: AsyncPubSub): Future[RedisList] {.async.} =
   await ps.ensureConn()
   return await ps.conn.readPubSubFrame()

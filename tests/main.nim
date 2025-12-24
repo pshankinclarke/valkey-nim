@@ -345,6 +345,32 @@ suite "valkey async tests":
 
     check waitFor main()
 
+  test "unsubscribe":
+    proc main(): Future[bool] {.async.} =
+      let base = await connectTest(AsyncValkey)
+      let ps = base.pubsub(ignoreSubscribeMessages = false)
+
+      let ch1 = "test_unsub_1"
+      let ch2 = "test_unsub_2"
+
+      await ps.subscribe(ch1, ch2)
+
+      discard await ps.receiveEvent()
+      discard await ps.receiveEvent()
+
+      await ps.unsubscribe(ch1)
+
+      let ev = await ps.receiveEvent()
+      doAssert ev.kind == pekUnsubscribe
+      doAssert ev.channel == ch1
+      doAssert ev.data == "1"
+
+      await ps.close()
+      await base.close()
+      return true
+
+    check waitFor main()
+
   test "engine detection (async)":
     let valkeyFlag = waitFor r.isValkey()
     let redisFlag = waitFor r.isRedis()
