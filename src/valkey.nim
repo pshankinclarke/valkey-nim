@@ -871,7 +871,7 @@ proc bLPop*(r: Redis | AsyncRedis, keys: seq[string], timeout: int): Future[Redi
   ## Remove and get the *first* element in a list, or block until
   ## one is available
   var args = newSeqOfCap[string](len(keys) + 1)
-  for i in items(keys):
+  for i in keys:
     args.add(i)
 
   args.add($timeout)
@@ -883,7 +883,7 @@ proc bRPop*(r: Redis | AsyncRedis, keys: seq[string], timeout: int): Future[Redi
   ## Remove and get the *last* element in a list, or block until one
   ## is available.
   var args = newSeqOfCap[string](len(keys) + 1)
-  for i in items(keys):
+  for i in keys:
     args.add(i)
 
   args.add($timeout)
@@ -1116,12 +1116,12 @@ proc zinterstore*(r: Redis | AsyncRedis, destination: string, numkeys: string,
   args.add(destination)
   args.add(numkeys)
 
-  for i in items(keys):
+  for i in keys:
     args.add(i)
 
   if weights.len != 0:
     args.add("WEIGHTS")
-    for i in items(weights):
+    for i in weights:
       args.add(i)
 
   if aggregate.len != 0:
@@ -1253,12 +1253,12 @@ proc zunionstore*(r: Redis | AsyncRedis, destination: string, numkeys: string,
   args.add(destination)
   args.add(numkeys)
 
-  for i in items(keys):
+  for i in keys:
     args.add(i)
 
   if weights.len != 0:
     args.add("WEIGHTS")
-    for i in items(weights): args.add(i)
+    for i in weights: args.add(i)
 
   if aggregate.len != 0:
     args.add("AGGREGATE")
@@ -1926,7 +1926,7 @@ iterator hPairs*(r: Redis, key: string): tuple[key, value: string] =
   var
     contents = r.hGetAll(key)
     k = ""
-  for i in items(contents):
+  for i in contents:
     if k == "":
       k = i
     else:
@@ -1939,7 +1939,7 @@ proc hPairs*(r: AsyncRedis, key: string): Future[seq[tuple[key, value: string]]]
     k = ""
 
   result = @[]
-  for i in items(contents):
+  for i in contents:
     if k == "":
       k = i
     else:
@@ -1976,7 +1976,7 @@ proc someTests(r: Redis | AsyncRedis, how: SendMode): Future[seq[string]] {.mult
   await r.lTrim("mylist",0,1)
   var p = await r.lRange("mylist", 0, -1)
 
-  for i in items(p):
+  for i in p:
     if i.len > 0:
       list.add(i)
 
@@ -1984,7 +1984,7 @@ proc someTests(r: Redis | AsyncRedis, how: SendMode): Future[seq[string]] {.mult
 
   await r.configSet("timeout", "299")
   var g = await r.configGet("timeout")
-  for i in items(g):
+  for i in g:
     list.add(i)
 
   list.add(await r.echoServ("BLAH"))
