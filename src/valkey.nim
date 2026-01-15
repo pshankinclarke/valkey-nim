@@ -1881,11 +1881,11 @@ proc detectEngineKind(r: Valkey | AsyncValkey): Future[EngineKind] {.multisync.}
 
 proc isValkey*(v: Valkey | AsyncValkey): Future[bool] {.multisync.} =
   ## Check if the connected server is Valkey
-  result = (await detectEngineKind(v)) == ekValkey
+  return (await detectEngineKind(v)) == ekValkey
 
 proc isRedis*(r: Valkey | AsyncValkey): Future[bool] {.multisync.} =
   ## Check if the connected server is Redis
-  result = (await detectEngineKind(r)) == ekRedis
+  return (await detectEngineKind(r)) == ekRedis
 
 proc lastsave*(r: Redis | AsyncRedis): Future[RedisInteger] {.multisync.} =
   ## Get the UNIX time stamp of the last successful save to disk
