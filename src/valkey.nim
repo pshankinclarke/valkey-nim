@@ -488,8 +488,9 @@ proc flushPipeline*(r: Redis | AsyncRedis, wasMulti = false): Future[RedisList] 
   for i in 0..tot-1:
     var ret = await r.readNext()
     for item in ret:
-     if not (item.contains("OK") or item.contains("QUEUED")):
-       result.add(item)
+      # Use direct equality checks instead of contains() for better performance
+      if item != "OK" and item != "QUEUED":
+        result.add(item)
 
   r.pipeline.expected = 0
 
@@ -503,9 +504,12 @@ proc startPipelining*(r: Redis | AsyncRedis) =
   r.pipeline.enabled = true
 
 proc sendCommand(r: Redis | AsyncRedis, cmd: string): Future[void] {.multisync.} =
-  var request = "*1\c\L"
-  request.add("$" & $cmd.len() & "\c\L")
-  request.add(cmd & "\c\L")
+  var request = newStringOfCap(64)
+  request.add("*1\c\L$")
+  request.add($cmd.len())
+  request.add("\c\L")
+  request.add(cmd)
+  request.add("\c\L")
 
   if r.pipeline.enabled:
     r.pipeline.buffer.add(request)
@@ -516,12 +520,20 @@ proc sendCommand(r: Redis | AsyncRedis, cmd: string): Future[void] {.multisync.}
 proc sendCommand(
   r: Redis | AsyncRedis, cmd: string, args: seq[string]
 ): Future[void] {.multisync.} =
-  var request = "*" & $(1 + args.len()) & "\c\L"
-  request.add("$" & $cmd.len() & "\c\L")
-  request.add(cmd & "\c\L")
-  for i in items(args):
-    request.add("$" & $i.len() & "\c\L")
-    request.add(i & "\c\L")
+  var request = newStringOfCap(128)
+  request.add("*")
+  request.add($(1 + args.len()))
+  request.add("\c\L$")
+  request.add($cmd.len())
+  request.add("\c\L")
+  request.add(cmd)
+  request.add("\c\L")
+  for i in args:
+    request.add("$")
+    request.add($i.len())
+    request.add("\c\L")
+    request.add(i)
+    request.add("\c\L")
 
   if r.pipeline.enabled:
     r.pipeline.buffer.add(request)
@@ -532,11 +544,16 @@ proc sendCommand(
 proc sendCommand(
   r: Redis | AsyncRedis, cmd: string, arg1: string
 ): Future[void] {.multisync.} =
-  var request = "*2\c\L"
-  request.add("$" & $cmd.len() & "\c\L")
-  request.add(cmd & "\c\L")
-  request.add("$" & $arg1.len() & "\c\L")
-  request.add(arg1 & "\c\L")
+  var request = newStringOfCap(64)
+  request.add("*2\c\L$")
+  request.add($cmd.len())
+  request.add("\c\L")
+  request.add(cmd)
+  request.add("\c\L$")
+  request.add($arg1.len())
+  request.add("\c\L")
+  request.add(arg1)
+  request.add("\c\L")
 
   if r.pipeline.enabled:
     r.pipeline.expected += 1
@@ -546,14 +563,24 @@ proc sendCommand(
 
 proc sendCommand(r: Redis | AsyncRedis, cmd: string, arg1: string,
                  args: seq[string]): Future[void] {.multisync.} =
-  var request = "*" & $(2 + args.len()) & "\c\L"
-  request.add("$" & $cmd.len() & "\c\L")
-  request.add(cmd & "\c\L")
-  request.add("$" & $arg1.len() & "\c\L")
-  request.add(arg1 & "\c\L")
-  for i in items(args):
-    request.add("$" & $i.len() & "\c\L")
-    request.add(i & "\c\L")
+  var request = newStringOfCap(128)
+  request.add("*")
+  request.add($(2 + args.len()))
+  request.add("\c\L$")
+  request.add($cmd.len())
+  request.add("\c\L")
+  request.add(cmd)
+  request.add("\c\L$")
+  request.add($arg1.len())
+  request.add("\c\L")
+  request.add(arg1)
+  request.add("\c\L")
+  for i in args:
+    request.add("$")
+    request.add($i.len())
+    request.add("\c\L")
+    request.add(i)
+    request.add("\c\L")
 
   if r.pipeline.enabled:
     r.pipeline.expected += 1
@@ -729,7 +756,7 @@ proc msetk*(
   keyValues: seq[tuple[key, value: string]]
 ): Future[void] {.multisync.} =
   ## Set mupltiple keys to multplie values
-  var args: seq[string] = @[]
+  var args = newSeqOfCap[string](keyValues.len * 2)
   for key, value in items(keyValues):
     args.add(key)
     args.add(value)
@@ -1302,10 +1329,16 @@ proc encodeRespArray(argv: openArray[string]): string =
   ## Encode argv as RESP2 Array of bulk strings
   ## e.g. ["PING", "hello"] -> "*2\r\n$4\r\nPING\r\n$5\r\nhello\r\n"
   doAssert argv.len > 0
-  result = "*" & $argv.len & "\c\L"
+  result = newStringOfCap(128)
+  result.add("*")
+  result.add($argv.len)
+  result.add("\c\L")
   for arg in argv:
-    result.add("$" & $arg.len & "\c\L")
-    result.add(arg & "\c\L")
+    result.add("$")
+    result.add($arg.len)
+    result.add("\c\L")
+    result.add(arg)
+    result.add("\c\L")
 
 proc executeCommandImpl(ps: AsyncPubSub; argv: seq[string]): Future[void] {.async.} =
   let req = encodeRespArray(argv)
@@ -1319,7 +1352,8 @@ proc executeCommand(ps: AsyncPubSub; argv: openArray[string]): Future[void] =
 
 proc executeCommand(ps: AsyncPubSub; cmd: string; args: varargs[string]): Future[void] =
   # Construct argv from cmd + args
-  var argv: seq[string] = @[cmd]
+  var argv = newSeqOfCap[string](1 + args.len)
+  argv.add(cmd)
   for a in args: argv.add a
   return ps.executeCommandImpl(argv)
 
@@ -1400,21 +1434,24 @@ proc ssubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
 proc unsubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
   if channels.len == 0:
     return ps.executeCommand("UNSUBSCRIBE")
-  var argv: seq[string] = @["UNSUBSCRIBE"]
+  var argv = newSeqOfCap[string](1 + channels.len)
+  argv.add("UNSUBSCRIBE")
   for c in channels: argv.add c
   return ps.executeCommand(argv)
 
 proc punsubscribe*(ps: AsyncPubSub; patterns: varargs[string]): Future[void] =
   if patterns.len == 0:
     return ps.executeCommand("PUNSUBSCRIBE")
-  var argv: seq[string] = @["PUNSUBSCRIBE"]
+  var argv = newSeqOfCap[string](1 + patterns.len)
+  argv.add("PUNSUBSCRIBE")
   for p in patterns: argv.add p
   return ps.executeCommand(argv)
 
 proc sunsubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
   if channels.len == 0:
     return ps.executeCommand("SUNSUBSCRIBE")
-  var argv: seq[string] = @["SUNSUBSCRIBE"]
+  var argv = newSeqOfCap[string](1 + channels.len)
+  argv.add("SUNSUBSCRIBE")
   for c in channels: argv.add c
   return ps.executeCommand(argv)
 
@@ -1483,12 +1520,12 @@ proc parseEvent*(response: openArray[string]): Option[PubSubEvent] =
     return some(event)
 
   else:
-  return none(PubSubEvent) # TODO: figure out what to do with "unknown" events. Maybe return an event with kind pekUnknown with channel/data...
+    return none(PubSubEvent) # TODO: figure out what to do with "unknown" events. Maybe return an event with kind pekUnknown with channel/data...
 
-  proc subKey(ev: PubSubEvent): string =
+proc subKey(ev: PubSubEvent): string =
   if ev.pattern.len > 0: ev.pattern else: ev.channel
 
-  proc applyState(ps: AsyncPubSub; ev: PubSubEvent): void =
+proc applyState(ps: AsyncPubSub; ev: PubSubEvent): void =
   let key = subKey(ev)
   if key.len == 0: return
 
@@ -1842,11 +1879,11 @@ proc detectEngineKind(r: Valkey | AsyncValkey): Future[EngineKind] {.multisync.}
 
 proc isValkey*(v: Valkey | AsyncValkey): Future[bool] {.multisync.} =
   ## Check if the connected server is Valkey
-  (await detectEngineKind(v)) == ekValkey
+  result = (await detectEngineKind(v)) == ekValkey
 
 proc isRedis*(r: Valkey | AsyncValkey): Future[bool] {.multisync.} =
   ## Check if the connected server is Redis
-  (await detectEngineKind(r)) == ekRedis
+  result = (await detectEngineKind(r)) == ekRedis
 
 proc lastsave*(r: Redis | AsyncRedis): Future[RedisInteger] {.multisync.} =
   ## Get the UNIX time stamp of the last successful save to disk
