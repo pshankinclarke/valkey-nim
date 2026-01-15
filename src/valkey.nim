@@ -488,7 +488,9 @@ proc flushPipeline*(r: Redis | AsyncRedis, wasMulti = false): Future[RedisList] 
   for i in 0..tot-1:
     var ret = await r.readNext()
     for item in ret:
-      # Use direct equality checks instead of contains() for better performance
+      # Use direct equality checks instead of contains() for better performance.
+      # The parseStatus proc strips the '+' prefix, so status strings are exactly "OK" or "QUEUED"
+      # (see parseStatus at line ~272 and raiseNoOK at line ~253 which also uses exact equality)
       if item != "OK" and item != "QUEUED":
         result.add(item)
 
@@ -755,7 +757,7 @@ proc msetk*(
   r: Redis | AsyncRedis,
   keyValues: seq[tuple[key, value: string]]
 ): Future[void] {.multisync.} =
-  ## Set mupltiple keys to multplie values
+  ## Set multiple keys to multiple values
   var args = newSeqOfCap[string](keyValues.len * 2)
   for key, value in items(keyValues):
     args.add(key)
