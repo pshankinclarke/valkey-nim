@@ -490,7 +490,7 @@ proc flushPipeline*(r: Redis | AsyncRedis, wasMulti = false): Future[RedisList] 
     for item in ret:
       # Use direct equality checks instead of contains() for better performance.
       # The parseStatus proc strips the '+' prefix, so status strings are exactly "OK" or "QUEUED"
-      # (see parseStatus at line ~272 and raiseNoOK at line ~253 which also uses exact equality)
+      # (see parseStatus and raiseNoOK which also use exact equality checks)
       if item != "OK" and item != "QUEUED":
         result.add(item)
 
