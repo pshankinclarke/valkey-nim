@@ -59,13 +59,27 @@ type
   Valkey* = ref object of ValkeyBase[net.Socket]
     ## A synchronous valkey client.
 
+  ValkeyTlsOptions* = object
+    cacert_filename*: string
+    capath*: string
+    cert_filename*: string
+    private_key_filename*: string
+    server_name*: string
+    verify_mode*: int
+
+  # stub for now
+  ValkeyTlsContext* = object
+
   ValkeyConnParams* = object
     host*: string
     port*: Port
     username*: string
     password*: string
     db*: int
-    # TODO: include tls/ timeouts once reconnect is implemented
+    useTls*: bool
+    tls*: Option[ValkeyTlsOptions]
+
+    # TODO: addtimeouts once reconnect is implemented
 
   AsyncValkey* = ref object of ValkeyBase[asyncnet.AsyncSocket]
     ## An asynchronous valkey client.
@@ -152,6 +166,23 @@ type
     subscribedFut*: Future[void] # completes when 0 -> >0, resets when >0 -> 0
 
     pendingPing: int
+
+# tls proc stubs
+
+# Intialize an OpenSSL configuration object
+proc tlsContextInit*(opts: ValkeyTlsOptions): ValkeyTlsContext =
+  discard opts
+  result = ValkeyTlsContext() # placeholder
+
+# Free prior created OpenSSL context
+proc tlsContextFree*(ctx: var ValkeyTlsContext) =
+  discard ctx
+
+# Intialize TLS on an already connected TCP client
+proc initiateTls*(r: Valkey | AsyncValkey, ctx: ValkeyTlsContext; sni="") =
+  discard r
+  discard ctx
+  discard sni
 
 ## Error helpers
 
@@ -357,7 +388,9 @@ proc openAsync*(host = "localhost", port = 6379.Port): Future[AsyncRedis] {.asyn
     port: port,
     db: 0,
     username: "",
-    password: ""
+    password: "",
+    useTls: false,
+    tls: none(ValkeyTlsOptions)
   )
 
   await result.socket.connect(host, port)
