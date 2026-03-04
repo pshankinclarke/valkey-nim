@@ -51,10 +51,15 @@ type
     ## For multi/exec, the elements inside the EXEC array reply are not counted in expected.
     ## TODO: add inMulti flag
 
+  ValkeyTlsState = ref object
+    # placeholder for TLS state
+
   ValkeyBase[TSocket] = ref object of RootObj
     socket: TSocket
     connected: bool
     pipeline: Pipeline
+    tlsActive: bool
+    tlsState: ValkeyTlsState
 
   Valkey* = ref object of ValkeyBase[net.Socket]
     ## A synchronous valkey client.
@@ -342,6 +347,49 @@ proc raiseValkeyErrorCmd*(r: Redis | AsyncRedis, msg: string) =
 proc raiseWatchErrorCmd*(r: Redis | AsyncRedis, msg: string) =
   finaliseCommand(r)
   raiseWatchError(msg)
+
+proc sendRaw(r: Redis | AsyncRedis, data: string): Future[void] {.multisync.} =
+  ## Raw transport send. No currentCommand/sendQueue boookkeeping. 
+  when r is Redis:
+    try:
+      r.socket.send(data)
+    except CatchableError as e:
+      raiseConnErrorCmd(r, "send failed: " & e.msg)
+  else:
+    try:
+      await r.socket.send(data)
+    except CatchableError as e:
+      raiseConnErrorCmd(r, "send failed: " & e.msg)
+
+proc recvExact(r: Redis | AsyncRedis, size: int): Future[string] {.multisync.} =
+  ## Raw transport recv of exactly size bytes.
+  result = newString(size)
+  when r is Redis:
+    try:
+      if r.socket.recv(result, size) != size:
+        raiseConnErrorCmd(r, "recv failed")
+    except CatchableError as e:
+      raiseConnErrorCmd(r, "recv failed: " & e.msg)
+  else:
+    try:
+      let numReceived = await r.socket.recvInto(addr result[0], size)
+      if numReceived != size:
+        raiseConnErrorCmd(r, "recv failed")
+    except CatchableError as e:
+      raiseConnErrorCmd(r, "recv failed: " & e.msg)
+
+proc recvLineRaw(r: Redis | AsyncRedis): Future[string] {.multisync.} =
+  ## Raw transport recv of a line (up to \r\n).
+  when r is Redis:
+    try:
+      result = net.recvLine(r.socket)
+    except CatchableError as e:
+      raiseConnErrorCmd(r, "recvLine failed: " & e.msg)
+  else:
+    try:
+      result = await asyncnet.recvLine(r.socket)
+    except CatchableError as e:
+      raiseConnErrorCmd(r, "recvLine failed: " & e.msg)
 
 proc newPipeline(): Pipeline =
   new(result)
