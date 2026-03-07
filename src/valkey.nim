@@ -489,10 +489,7 @@ proc managedSend(
   r: Redis | AsyncRedis, data: string, cmd: string = ""
 ): Future[void] {.multisync.} =
   when r is Redis:
-    try:
-      r.socket.send(data)
-    except CatchableError as e:
-      raiseConnErrorCmd(r, "send failed: " & e.msg)
+    r.sendRaw(data)
   else:
     if r.currentCommand.isSome():
       # Queue this send.
@@ -501,23 +498,15 @@ proc managedSend(
       await sendFut
 
     r.currentCommand = some(cmd)
-    try:
-      await r.socket.send(data)
-    except CatchableError as e:
-      raiseConnErrorCmd(r, "send failed: " & e.msg)
+    await r.sendRaw(data)
 
 proc managedRecv(
   r: Redis | AsyncRedis, size: int
 ): Future[string] {.multisync.} =
-  result = newString(size)
-
   when r is Redis:
-    if r.socket.recv(result, size) != size:
-      raiseConnErrorCmd(r, "recv failed")
+    result = r.recvExact(size)
   else:
-    let numReceived = await r.socket.recvInto(addr result[0], size)
-    if numReceived != size:
-      raiseConnErrorCmd(r, "recv failed")
+    result = await r.recvExact(size)
 
 proc managedRecvPubSub(r: Redis | AsyncRedis, size: int): Future[string] {.multisync.} =
   ## Like managedRecv but doesn't finalise command state; raises ConnectionError on short read/EOF.
@@ -535,9 +524,9 @@ proc managedRecvLine(r: Redis | AsyncRedis): Future[string] {.multisync.} =
     result = ""
   else:
     when r is Redis:
-      result = recvLine(r.socket)
+      result = r.recvLineRaw()
     else:
-      result = await recvLine(r.socket)
+      result = await r.recvLineRaw()
 
 proc raiseInvalidReply(r: Redis | AsyncRedis, expected, got: char) =
   raiseReplyError(r,
