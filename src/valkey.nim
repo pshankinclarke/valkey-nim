@@ -1036,10 +1036,10 @@ proc ttl*(r: Redis | AsyncRedis, key: string): Future[RedisInteger] {.multisync.
   await r.sendCommand("TTL", key)
   return await r.readInteger()
 
-proc keyType*(r: Redis, key: string): RedisStatus =
+proc keyType*(r: Redis | AsyncRedis, key: string): Future[RedisStatus] {.multisync.} =
   ## Determine the type stored at key
-  r.sendCommand("TYPE", key)
-  result = r.readStatus()
+  await r.sendCommand("TYPE", key)
+  result = await r.readStatus()
 
 
 # Strings
@@ -1228,29 +1228,24 @@ proc hVals*(r: Redis | AsyncRedis, key: string): Future[RedisList] {.multisync.}
 
 # Lists
 
-proc bLPop*(r: Redis | AsyncRedis, keys: seq[string], timeout: int): Future[RedisList] {.multisync.} =
-  ## Remove and get the *first* element in a list, or block until
-  ## one is available
+proc blockingListCommand(r: Redis | AsyncRedis, cmd: string, keys: seq[string], timeout: int): Future[RedisList] {.multisync.} =
+  ## Helper for blocking list operations (BLPOP/BRPOP)
   var args = newSeqOfCap[string](len(keys) + 1)
   for i in items(keys):
     args.add(i)
-
   args.add($timeout)
-
-  await r.sendCommand("BLPOP", args)
+  await r.sendCommand(cmd, args)
   result = await r.readArray()
+
+proc bLPop*(r: Redis | AsyncRedis, keys: seq[string], timeout: int): Future[RedisList] {.multisync.} =
+  ## Remove and get the *first* element in a list, or block until
+  ## one is available
+  result = await r.blockingListCommand("BLPOP", keys, timeout)
 
 proc bRPop*(r: Redis | AsyncRedis, keys: seq[string], timeout: int): Future[RedisList] {.multisync.} =
   ## Remove and get the *last* element in a list, or block until one
   ## is available.
-  var args = newSeqOfCap[string](len(keys) + 1)
-  for i in items(keys):
-    args.add(i)
-
-  args.add($timeout)
-
-  await r.sendCommand("BRPOP", args)
-  result = await r.readArray()
+  result = await r.blockingListCommand("BRPOP", keys, timeout)
 
 proc bRPopLPush*(r: Redis | AsyncRedis, source, destination: string,
                  timeout: int): Future[RedisString] {.multisync.} =
@@ -1283,29 +1278,21 @@ proc lPop*(r: Redis | AsyncRedis, key: string): Future[RedisString] {.multisync.
   await r.sendCommand("LPOP", key)
   result = await r.readBulkString()
 
+proc lPush*(r: Redis | AsyncRedis, key: string, values: seq[string], create: bool = true): Future[RedisInteger] {.multisync.} =
+  ## Prepend values to a list. Returns the length of the list after the push.
+  ## The ``create`` param specifies whether a list should be created if it
+  ## doesn't exist at ``key``. More specifically if ``create`` is true, `LPUSH`
+  ## will be used, otherwise `LPUSHX`.
+  let cmd = if create: "LPUSH" else: "LPUSHX"
+  await r.sendCommand(cmd, key, values)
+  result = await r.readInteger()
+
 proc lPush*(r: Redis | AsyncRedis, key, value: string, create: bool = true): Future[RedisInteger] {.multisync.} =
   ## Prepend a value to a list. Returns the length of the list after the push.
   ## The ``create`` param specifies whether a list should be created if it
   ## doesn't exist at ``key``. More specifically if ``create`` is true, `LPUSH`
   ## will be used, otherwise `LPUSHX`.
-  if create:
-    await r.sendCommand("LPUSH", key, @[value])
-  else:
-    await r.sendCommand("LPUSHX", key, @[value])
-
-  result = await r.readInteger()
-
-proc lLPush*(r: Redis | AsyncRedis, key: string, values: seq[string], create: bool = true): Future[RedisInteger] {.multisync.} =
-  ## Append a value to a list. Returns the length of the list after the push.
-  ## The ``create`` param specifies whether a list should be created if it
-  ## doesn't exist at ``key``. More specifically if ``create`` is true, `RPUSH`
-  ## will be used, otherwise `RPUSHX`.
-  if create:
-    await r.sendCommand("LPUSH", key, values)
-  else:
-    await r.sendCommand("LPUSHX", key, values)
-
-  result = await r.readInteger()
+  result = await r.lPush(key, @[value], create)
 
 proc lRange*(r: Redis | AsyncRedis, key: string, start, stop: int): Future[RedisList] {.multisync.} =
   ## Get a range of elements from a list.
@@ -1338,41 +1325,32 @@ proc rPopLPush*(r: Redis | AsyncRedis, source, destination: string): Future[Redi
   await r.sendCommand("RPOPLPUSH", source, @[destination])
   result = await r.readBulkString()
 
+proc rPush*(r: Redis | AsyncRedis, key: string, values: seq[string], create: bool = true): Future[RedisInteger] {.multisync.} =
+  ## Append values to a list. Returns the length of the list after the push.
+  ## The ``create`` param specifies whether a list should be created if it
+  ## doesn't exist at ``key``. More specifically if ``create`` is true, `RPUSH`
+  ## will be used, otherwise `RPUSHX`.
+  let cmd = if create: "RPUSH" else: "RPUSHX"
+  await r.sendCommand(cmd, key, values)
+  result = await r.readInteger()
+
 proc rPush*(r: Redis | AsyncRedis, key, value: string, create: bool = true): Future[RedisInteger] {.multisync.} =
   ## Append a value to a list. Returns the length of the list after the push.
   ## The ``create`` param specifies whether a list should be created if it
   ## doesn't exist at ``key``. More specifically if ``create`` is true, `RPUSH`
   ## will be used, otherwise `RPUSHX`.
-  if create:
-    await r.sendCommand("RPUSH", key, @[value])
-  else:
-    await r.sendCommand("RPUSHX", key, @[value])
-
-  result = await r.readInteger()
-
-proc rLPush*(r: Redis | AsyncRedis, key: string, values: seq[string], create: bool = true): Future[RedisInteger] {.multisync.} =
-  ## Append a value to a list. Returns the length of the list after the push.
-  ## The ``create`` param specifies whether a list should be created if it
-  ## doesn't exist at ``key``. More specifically if ``create`` is true, `RPUSH`
-  ## will be used, otherwise `RPUSHX`.
-  if create:
-    await r.sendCommand("RPUSH", key, values)
-  else:
-    await r.sendCommand("RPUSHX", key, values)
-
-  result = await r.readInteger()
+  result = await r.rPush(key, @[value], create)
 
 # Sets
 
-proc sadd*(r: Redis | AsyncRedis, key: string, member: string): Future[RedisInteger] {.multisync.} =
-  ## Add a member to a set
-  await r.sendCommand("SADD", key, @[member])
-  result = await r.readInteger()
-
-proc sladd*(r: Redis | AsyncRedis, key: string, members: seq[string]): Future[RedisInteger] {.multisync.} =
-  ## Add a member to a set
+proc sadd*(r: Redis | AsyncRedis, key: string, members: seq[string]): Future[RedisInteger] {.multisync.} =
+  ## Add members to a set
   await r.sendCommand("SADD", key, members)
   result = await r.readInteger()
+
+proc sadd*(r: Redis | AsyncRedis, key: string, member: string): Future[RedisInteger] {.multisync.} =
+  ## Add a member to a set
+  result = await r.sadd(key, @[member])
 
 proc scard*(r: Redis | AsyncRedis, key: string): Future[RedisInteger] {.multisync.} =
   ## Get the number of members in a set
@@ -1636,15 +1614,14 @@ proc pfadd*(r: Redis | AsyncRedis, key: string, elements: seq[string]): Future[R
   await r.sendCommand("PFADD", key, elements)
   result = await r.readInteger()
 
-proc pfcount*(r: Redis | AsyncRedis, key: string): Future[RedisInteger] {.multisync.} =
-  ## Count approximate number of elements in 'HyperLogLog'
-  await r.sendCommand("PFCOUNT", key)
-  result = await r.readInteger()
-
 proc pfcount*(r: Redis | AsyncRedis, keys: seq[string]): Future[RedisInteger] {.multisync.} =
   ## Count approximate number of elements in 'HyperLogLog'
   await r.sendCommand("PFCOUNT", keys)
   result = await r.readInteger()
+
+proc pfcount*(r: Redis | AsyncRedis, key: string): Future[RedisInteger] {.multisync.} =
+  ## Count approximate number of elements in 'HyperLogLog'
+  result = await r.pfcount(@[key])
 
 proc pfmerge*(r: Redis | AsyncRedis, destination: string, sources: seq[string]): Future[void] {.multisync.} =
   ## Merge several source HyperLogLog's into one specified by destKey
@@ -1753,50 +1730,35 @@ proc normalizeTargets(xs: seq[string]; cmdName: string): seq[string] =
   if result.len == 0:
     raise newException(ValueError, cmdName & " needs at least one target")
 
-proc subscribeImpl(ps: AsyncPubSub; channels: seq[string]): Future[void] {.async.}  =
-  let uniqueChannels = normalizeTargets(channels, "SUBSCRIBE")
+proc genericSubscribeImpl(ps: AsyncPubSub; targets: seq[string]; cmdName: string;
+                         activeSet, pendingUnsubSet: var HashSet[string]): Future[void] {.async.} =
+  ## Generic helper for subscribe operations (SUBSCRIBE, PSUBSCRIBE, SSUBSCRIBE)
+  let uniqueTargets = normalizeTargets(targets, cmdName)
 
-  var argv = newSeqOfCap[string](1 + uniqueChannels.len)
-  argv.add "SUBSCRIBE"
-  for c in uniqueChannels: argv.add c
+  var argv = newSeqOfCap[string](1 + uniqueTargets.len)
+  argv.add cmdName
+  for t in uniqueTargets: argv.add t
 
   await ps.executeCommand(argv)
 
-  for c in uniqueChannels:
-    ps.channels.incl(c)
-    ps.pendingUnsubChannels.excl(c)
+  for t in uniqueTargets:
+    activeSet.incl(t)
+    pendingUnsubSet.excl(t)
+
+proc subscribeImpl(ps: AsyncPubSub; channels: seq[string]): Future[void] {.async.}  =
+  await ps.genericSubscribeImpl(channels, "SUBSCRIBE", ps.channels, ps.pendingUnsubChannels)
 
 proc subscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
   return ps.subscribeImpl(@channels)
 
 proc psubscribeImpl(ps: AsyncPubSub; patterns: seq[string]): Future[void] {.async.}  =
-  let uniquePatterns = normalizeTargets(patterns, "PSUBSCRIBE")
-
-  var argv = newSeqOfCap[string](1 + uniquePatterns.len)
-  argv.add "PSUBSCRIBE"
-  for p in uniquePatterns: argv.add p
-
-  await ps.executeCommand(argv)
-
-  for p in uniquePatterns:
-    ps.patterns.incl(p)
-    ps.pendingUnsubPatterns.excl(p)
+  await ps.genericSubscribeImpl(patterns, "PSUBSCRIBE", ps.patterns, ps.pendingUnsubPatterns)
 
 proc psubscribe*(ps: AsyncPubSub; pattern: varargs[string]): Future[void] =
   return ps.psubscribeImpl(@pattern)
 
 proc ssubscribeImpl(ps: AsyncPubSub; channels: seq[string]): Future[void] {.async.}  =
-  let uniqueChannels = normalizeTargets(channels, "SSUBSCRIBE")
-
-  var argv = newSeqOfCap[string](1 + uniqueChannels.len)
-  argv.add "SSUBSCRIBE"
-  for c in uniqueChannels: argv.add c
-
-  await ps.executeCommand(argv)
-
-  for c in uniqueChannels:
-    ps.shardChannels.incl(c)
-    ps.pendingUnsubShardChannels.excl(c)
+  await ps.genericSubscribeImpl(channels, "SSUBSCRIBE", ps.shardChannels, ps.pendingUnsubShardChannels)
 
 proc ssubscribe*(ps: AsyncPubSub; channels: varargs[string]): Future[void] =
   return ps.ssubscribeImpl(@channels)
@@ -2254,14 +2216,12 @@ proc flushdb*(r: Redis | AsyncRedis): Future[RedisStatus] {.multisync.} =
   await r.sendCommand("FLUSHDB")
   raiseNoOK(r, await r.readStatus())
 
-proc info*(r: Redis | AsyncRedis): Future[RedisString] {.multisync.} =
+proc info*(r: Redis | AsyncRedis, section: string = ""): Future[RedisString] {.multisync.} =
   ## Get information and statistics about the server
-  await r.sendCommand("INFO")
-  result = await r.readBulkString()
-
-proc info*(r: Redis | AsyncRedis, section: string): Future[RedisString] {.multisync.} =
-  ## Get information and statistics about the server
-  await r.sendCommand("INFO", section)
+  if section.len == 0:
+    await r.sendCommand("INFO")
+  else:
+    await r.sendCommand("INFO", section)
   result = await r.readBulkString()
 
 proc detectEngineKind(r: Valkey | AsyncValkey): Future[EngineKind] {.multisync.} =
