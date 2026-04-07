@@ -860,15 +860,9 @@ proc flushPipeline*(r: Redis | AsyncRedis, wasMulti = false): Future[RedisList] 
 
   if r.pipeline.buffer.len > 0:
     when r is Redis:
-      try:
-        r.socket.send(r.pipeline.buffer)
-      except CatchableError as e:
-        raiseConnErrorCmd(r, "send failed: " & e.msg)
+      r.sendRaw(r.pipeline.buffer)
     else:
-      try:
-        await r.socket.send(r.pipeline.buffer)
-      except CatchableError as e:
-        raiseConnErrorCmd(r, "send failed: " & e.msg)
+      await r.sendRaw(r.pipeline.buffer)
 
   # enter "read and reply" phase, clean buffer and disable pipelining
   r.pipeline.buffer = ""
@@ -1777,12 +1771,12 @@ proc executeCommandImpl(ps: AsyncPubSub; argv: seq[string]): Future[void] {.asyn
   await ps.ensureConn()
   # IMPORTANT: bypass managedSend/SendCommand to avoid currentCommand/finalise coupling.
   try:
-    await ps.conn.socket.send(req) # send-only, no reads, no managedSend
+    await ps.conn.sendRaw(req) # send-only, no reads, no managedSend
   except CatchableError as e:
     if not ps.conn.isNil:
       try:
         ps.conn.socket.close()
-      except CatchableError:
+      except ConnectionError:
         discard
       ps.conn = nil
     ps.resetState()
@@ -2379,7 +2373,7 @@ proc shutdown*(r: Redis | AsyncRedis): Future[void] {.multisync.} =
   await r.sendCommand("SHUTDOWN")
 
   when r is Redis:
-    let s = recvLine(r.socket)
+    let s = r.recvLineRaw()
     if len(s) != 0:
       raiseRedisError(r, s)
   else:
