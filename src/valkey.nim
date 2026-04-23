@@ -509,15 +509,22 @@ proc managedRecv(
     result = await r.recvExact(size)
 
 proc managedRecvPubSub(r: Redis | AsyncRedis, size: int): Future[string] {.multisync.} =
-  ## Like managedRecv but doesn't finalise command state; raises ConnectionError on short read/EOF.
+  ## Raw transport recv for Pub/Sub paths
+  ## Raises ConnectionError on short read/EOF; doesn't touch cmd state
   result = newString(size)
+  var bytesRead: int
   when r is Redis:
-    if r.socket.recv(result, size) != size:
-      raiseConnError("recv failed")
+    try:
+      bytesRead = r.socket.recv(result, size)
+    except CatchableError as e:
+      raiseConnError("recv failed: " & e.msg)
   else:
-    let numReceived = await r.socket.recvInto(addr result[0], size)
-    if numReceived != size:
-      raiseConnError("recv failed")
+    try:
+      bytesRead = await r.socket.recvInto(addr result[0], size)
+    except CatchableError as e:
+      raiseConnError("recv failed: " & e.msg)
+  if bytesRead != size:
+    raiseConnError("recv failed")
 
 proc managedRecvLine(r: Redis | AsyncRedis): Future[string] {.multisync.} =
   if r.pipeline.enabled:
