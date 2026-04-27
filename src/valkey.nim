@@ -36,6 +36,8 @@
 ##    waitFor main()
 
 import std/net, asyncdispatch, asyncnet, os, strutils, parseutils, deques, options, sets, sequtils
+when defined(valkey_tls) and not defined(ssl):
+  {.fatal: "valkey_tls requires the ssl feature. Please compile with -d:ssl.".}
 
 const
   valkeyNil* = "\0\0"
@@ -72,8 +74,11 @@ type
     server_name*: string
     verify_mode*: int
 
-  # stub for now
-  ValkeyTlsContext* = object
+  # reusable TLS config wrapper
+  ValkeyTlsContext* = ref object
+    when defined(valkey_tls):
+      ctx: SslContext # Nim stdlib SslContext, OpenSSL backed underneath
+    serverName: string # SNI / hostname verification name
 
   ValkeyConnParams* = object
     host*: string
@@ -176,12 +181,11 @@ type
 
 # Initialize an OpenSSL configuration object
 proc tlsContextInit*(opts: ValkeyTlsOptions): ValkeyTlsContext =
-  discard opts
-  result = ValkeyTlsContext() # placeholder
+  result = ValkeyTlsContext(serverName: opts.server_name)
 
 # Free prior created OpenSSL context
 proc tlsContextFree*(ctx: var ValkeyTlsContext) =
-  discard ctx
+  ctx = nil
 
 # Initialize TLS on an already connected TCP client
 proc initiateTls*(r: Valkey | AsyncValkey, ctx: ValkeyTlsContext; sni="") =
