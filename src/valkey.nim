@@ -84,7 +84,7 @@ type
     useTls*: bool
     tls*: Option[ValkeyTlsOptions]
 
-    # TODO: addtimeouts once reconnect is implemented
+    # TODO: add timeouts once reconnect is implemented
 
   AsyncValkey* = ref object of ValkeyBase[asyncnet.AsyncSocket]
     ## An asynchronous valkey client.
@@ -174,7 +174,7 @@ type
 
 # tls proc stubs
 
-# Intialize an OpenSSL configuration object
+# Initialize an OpenSSL configuration object
 proc tlsContextInit*(opts: ValkeyTlsOptions): ValkeyTlsContext =
   discard opts
   result = ValkeyTlsContext() # placeholder
@@ -183,7 +183,7 @@ proc tlsContextInit*(opts: ValkeyTlsOptions): ValkeyTlsContext =
 proc tlsContextFree*(ctx: var ValkeyTlsContext) =
   discard ctx
 
-# Intialize TLS on an already connected TCP client
+# Initialize TLS on an already connected TCP client
 proc initiateTls*(r: Valkey | AsyncValkey, ctx: ValkeyTlsContext; sni="") =
   discard r
   discard ctx
@@ -349,7 +349,7 @@ proc raiseWatchErrorCmd*(r: Redis | AsyncRedis, msg: string) =
   raiseWatchError(msg)
 
 proc sendRaw(r: Redis | AsyncRedis, data: string): Future[void] {.multisync.} =
-  ## Raw transport send. No currentCommand/sendQueue boookkeeping. 
+  ## Raw transport send. No currentCommand/sendQueue bookkeeping. 
   when r is Redis:
     try:
       r.socket.send(data)
@@ -949,8 +949,8 @@ proc flushPipeline*(r: Redis | AsyncRedis, wasMulti = false): Future[RedisList] 
   if not firstServerError.isNil:
     raise firstServerError
 
-# TODO: Async pipelining/flushPipeline assumes execlusive access to the connection
-# not safe with concurrent commands. Futre: add per-connection IO lock or dedicated reader/writer task.
+# TODO: Async pipelining/flushPipeline assumes exclusive access to the connection
+# not safe with concurrent commands. Future: add per-connection IO lock or dedicated reader/writer task.
 proc startPipelining*(r: Redis | AsyncRedis) =
   ## Enable command pipelining (reduces network roundtrips).
   ## Note that when enabled, you must call flushPipeline to actually send commands, except
