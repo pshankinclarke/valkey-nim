@@ -179,11 +179,31 @@ type
 
 # tls proc stubs
 
-# Initialize an OpenSSL configuration object
+# Initialize a Nim SSL context wrapper for TLS connections
 proc tlsContextInit*(opts: ValkeyTlsOptions): ValkeyTlsContext =
-  result = ValkeyTlsContext(serverName: opts.server_name)
+  when defined(valkey_tls):
+    var verifyMode: SslCVerifyMode
+    if opts.verify_mode == 0:
+      verifyMode = CVerifyPeer
+    else:
+      verifyMode = SslCVerifyMode(opts.verify_mode)
 
-# Free prior created OpenSSL context
+    let sslCtx = newContext(
+      verifyMode = verifyMode,
+      certFile = opts.cert_filename,
+      keyFile = opts.private_key_filename,
+      caFile = opts.cacert_filename,
+      caDir = opts.capath
+    )
+
+    result = ValkeyTlsContext(
+      ctx: sslCtx,
+      serverName: opts.server_name
+    )
+  else:
+    raise newException(ValkeyError, "TLS support is not enabled; compile with -d:valkey_tls -d:ssl") #TODO: should be raiseValkeyError
+
+# Release the TLS context wrapper
 proc tlsContextFree*(ctx: var ValkeyTlsContext) =
   ctx = nil
 
