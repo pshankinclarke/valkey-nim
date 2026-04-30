@@ -208,10 +208,39 @@ proc tlsContextFree*(ctx: var ValkeyTlsContext) =
   ctx = nil
 
 # Initialize TLS on an already connected TCP client
-proc initiateTls*(r: Valkey | AsyncValkey, ctx: ValkeyTlsContext; sni="") =
+proc initiateTls*(r: Valkey, ctx: ValkeyTlsContext; sni="") =
+  when defined(valkey_tls):
+    if ctx.isNil:
+      raise newException(ValkeyError, "Invalid TLS context")
+
+    var hostname: string
+    if sni.len > 0:
+      hostname = sni
+    elif ctx.serverName.len > 0:
+      hostname = ctx.serverName
+    else:
+      raise newException(ValkeyError, "SNI/hostname is required for TLS connections")
+
+    try:
+      ctx.ctx.wrapConnectedSocket(r.socket, handshakeAsClient, hostname)
+      r.tlsActive = true
+      r.tlsState = ValkeyTlsState()
+    except CatchableError as e:
+      try: r.socket.close()
+      except CatchableError: discard
+      raise newException(ConnectionError, "TLS handshake failed: " & e.msg) #TODO: should be raiseConnErrorCmd
+  else:
+    raise newException(ValkeyError, "TLS support is not enabled; compile with -d:valkey_tls -d:ssl")
+
+# Async TLS initiation will be implemented separately.
+proc initiateTls*(r: AsyncValkey, ctx: ValkeyTlsContext; sni="") =
   discard r
   discard ctx
   discard sni
+  when defined(valkey_tls):
+    raise newException(ValkeyError, "Async TLS initiation is not yet implemented")
+  else:
+    raise newException(ValkeyError, "TLS support is not enabled; compile with -d:valkey_tls -d:ssl")
 
 ## Error helpers
 
